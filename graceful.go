@@ -19,8 +19,7 @@ func init() {
 	go func() {
 		<-ctx.Done()
 		stop()
-		runHandlers()
-		close(done)
+		triggerShutdown()
 	}()
 }
 
@@ -44,4 +43,9 @@ func runHandlers() {
 	for _, handler := range handlers {
 		handler()
 	}
+}
+
+func triggerShutdown() {
+	runHandlers()
+	close(done)
 }

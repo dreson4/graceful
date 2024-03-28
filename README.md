@@ -8,7 +8,7 @@ It provides a convenient way to ensure that necessary cleanup operations are per
 To use `graceful` in your Go project, simply import it using:
 
 ```go
-go get github.com/dreson4/graceful
+go get github.com/dreson4/graceful/v2
 ```
 
 ## Usage
@@ -39,7 +39,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dreson4/graceful"
+	"github.com/dreson4/graceful/v2"
 )
 
 func init(){

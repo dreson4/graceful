@@ -64,10 +64,16 @@ func triggerShutdown() {
 		return
 	}
 	isShuttingDown = true // Ensure no new jobs can start.
-	for activeJobs > 0 {
-		jobsCond.Wait()
-	}
 	mu.Unlock()
+
+	func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for activeJobs > 0 {
+			jobsCond.Wait() // Wait inside the lock, but it atomically unlocks while waiting
+		}
+	}()
+
 	runHandlers()
 	close(done)
 }

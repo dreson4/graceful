@@ -8,28 +8,34 @@ import (
 )
 
 var (
-	activeJobs     = 0
-	handlers       []func()
-	mu             sync.Mutex
-	done           chan struct{}
-	jobsCond       = sync.NewCond(&mu)
-	isShuttingDown bool
+	activeJobs       = 0
+	handlers         []func()
+	mu               sync.Mutex
+	shutdownComplete chan struct{}
+	jobsCond         = sync.NewCond(&mu)
+	isShuttingDown   bool
+	initOnce         sync.Once
+	shutdownCtx      context.Context
 )
 
-var didInit bool
-
 func Initialize() {
-	didInit = true
-	activeJobs = 0
-	handlers = make([]func(), 0)
-	isShuttingDown = false
-	done = make(chan struct{})
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-ctx.Done()
-		stop()
-		triggerShutdown()
-	}()
+	initOnce.Do(func() {
+		activeJobs = 0
+		handlers = make([]func(), 0)
+		isShuttingDown = false
+		shutdownComplete = make(chan struct{})
+		var stop context.CancelFunc
+		shutdownCtx, stop = signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-shutdownCtx.Done()
+			stop()
+			triggerShutdown()
+		}()
+	})
+}
+
+func ShutdownContext() context.Context {
+	return shutdownCtx
 }
 
 // OnShutdown - Register a new handler to be executed on shutdown.
@@ -40,19 +46,19 @@ func OnShutdown(handler func()) {
 }
 
 // Wait for shutdown to complete before exiting the main function.
-// This function should be called at the end of the main function.
 func Wait() {
-	if !didInit {
-		panic("called graceful.Wait() without calling graceful.Initialize()")
+	if shutdownComplete == nil {
+		panic("called graceful.Wait() without calling graceful.Start()")
 	}
-	<-done
+	<-shutdownComplete
 }
 
 func runHandlers() {
 	mu.Lock()
-	defer mu.Unlock()
+	handlersCopy := append([]func(){}, handlers...)
+	mu.Unlock()
 
-	for _, handler := range handlers {
+	for _, handler := range handlersCopy {
 		handler()
 	}
 }
@@ -63,19 +69,19 @@ func triggerShutdown() {
 		mu.Unlock()
 		return
 	}
-	isShuttingDown = true // Ensure no new jobs can start.
+	isShuttingDown = true
 	mu.Unlock()
 
 	func() {
 		mu.Lock()
 		defer mu.Unlock()
 		for activeJobs > 0 {
-			jobsCond.Wait() // Wait inside the lock, but it atomically unlocks while waiting
+			jobsCond.Wait()
 		}
 	}()
 
 	runHandlers()
-	close(done)
+	close(shutdownComplete)
 }
 
 // IncrementJobCounter - Call this when starting a job to prevent shutdown until job is finished.
